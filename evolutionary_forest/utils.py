@@ -13,7 +13,7 @@ import torch
 from deap.gp import Primitive
 from matplotlib import pyplot as plt
 from numba import njit
-from sympy import latex, parse_expr
+from sympy import simplify, latex, parse_expr
 
 from evolutionary_forest.component.primitives import individual_to_tuple
 
@@ -94,68 +94,86 @@ def efficient_deepcopy(self, memo=None, custom_filter=None):
     return result
 
 
-def get_feature_importance(regr, latex_version=True, fitness_weighted=False, mean_fitness=False,
-                           ensemble_weighted=True, simple_version=None):
-    """
-    :param regr: evolutionary forest
-    :param latex_version: return simplified symbol, which is used for printing
-    :param fitness_weighted: assign different weights to features based on fitness values
-    :param mean_fitness: return mean feature importance instead of summative feature importance
-    :param simple_version: alias for latex_version
-    :return:
-    """
-    if simple_version is not None:
-        latex_version = simple_version
+# def get_feature_importance(regr, latex_version=True, fitness_weighted=False, mean_fitness=False,
+#                            ensemble_weighted=True, simple_version=None):
+#     """
+#     :param regr: evolutionary forest
+#     :param latex_version: return simplified symbol, which is used for printing
+#     :param fitness_weighted: assign different weights to features based on fitness values
+#     :param mean_fitness: return mean feature importance instead of summative feature importance
+#     :param simple_version: alias for latex_version
+#     :return:
+#     """
+#     if simple_version is not None:
+#         latex_version = simple_version
 
-    if mean_fitness:
-        all_genes_map = defaultdict(list)
-    else:
-        all_genes_map = defaultdict(int)
-    hash_dict = {}
+#     if mean_fitness:
+#         all_genes_map = defaultdict(list)
+#     else:
+#         all_genes_map = defaultdict(int)
+#     hash_dict = {}
 
-    # Processing function
-    if latex_version:
-        latex_string = lambda g: latex(parse_expr(gene_to_string(g).replace("ARG", "X").replace("_", "-")),
-                                       mul_symbol='dot')
-        processing_code = lambda g: f'${latex_string(g)}$'
-    else:
-        # Generating a Python code fragment
-        def code_generation(gene):
-            code = str(gene)
-            args = ",".join(arg for arg in regr.pset.arguments)
-            code = "lambda {args}: {code}".format(args=args, code=code)
-            return code
+#     # Processing function
+#     if latex_version:
+#         latex_string = lambda g: latex(parse_expr(gene_to_string(g).replace("ARG", "X").replace("_", "-")),
+#                                        mul_symbol='dot')
+#         processing_code = lambda g: f'${latex_string(g)}$'
+#     else:
+#         # Generating a Python code fragment
+#         def code_generation(gene):
+#             code = str(gene)
+#             args = ",".join(arg for arg in regr.pset.arguments)
+#             code = "lambda {args}: {code}".format(args=args, code=code)
+#             return code
 
-        processing_code = lambda g: f'{code_generation(g)}'
+#         processing_code = lambda g: f'{code_generation(g)}'
 
+#     for x in regr.hof:
+#         for o_g, h, c in zip(x.gene, x.hash_result, np.abs(x.coef)):
+#             # Taking the fitness of each model into consideration
+#             importance_value = c
+#             if fitness_weighted:
+#                 importance_value = importance_value * x.fitness.wvalues[0]
+#             if ensemble_weighted and hasattr(regr.hof, 'ensemble_weight'):
+#                 importance_value = importance_value * regr.hof.ensemble_weight[individual_to_tuple(x)]
+#             # Merge features with equivalent hash values
+#             if h not in hash_dict or len(o_g) < len(hash_dict[h]):
+#                 hash_dict[h] = o_g
+#             # Deciding using summation or mean technique to calculate the importance value
+#             if mean_fitness:
+#                 all_genes_map[h].append(importance_value)
+#             else:
+#                 all_genes_map[h] += importance_value
+#     # Forming a dict
+#     all_genes_map = {
+#         processing_code(hash_dict[k]): all_genes_map[k] for k in all_genes_map.keys()
+#     }
+#     if mean_fitness:
+#         for k, v in all_genes_map.items():
+#             all_genes_map[k] = np.mean(v)
+#     feature_importance_dict = {k: v for k, v in sorted(all_genes_map.items(), key=lambda item: -item[1])}
+#     sum_value = np.sum([v for k, v in feature_importance_dict.items()])
+#     feature_importance_dict = {k: v / sum_value for k, v in feature_importance_dict.items()}
+#     return feature_importance_dict
+
+def get_feature_importance(regr, simple_version=True):
+    all_genes_map = defaultdict(int)
     for x in regr.hof:
-        for o_g, h, c in zip(x.gene, x.hash_result, np.abs(x.coef)):
-            # Taking the fitness of each model into consideration
-            importance_value = c
-            if fitness_weighted:
-                importance_value = importance_value * x.fitness.wvalues[0]
-            if ensemble_weighted and hasattr(regr.hof, 'ensemble_weight'):
-                importance_value = importance_value * regr.hof.ensemble_weight[individual_to_tuple(x)]
-            # Merge features with equivalent hash values
-            if h not in hash_dict or len(o_g) < len(hash_dict[h]):
-                hash_dict[h] = o_g
-            # Deciding using summation or mean technique to calculate the importance value
-            if mean_fitness:
-                all_genes_map[h].append(importance_value)
-            else:
-                all_genes_map[h] += importance_value
-    # Forming a dict
-    all_genes_map = {
-        processing_code(hash_dict[k]): all_genes_map[k] for k in all_genes_map.keys()
-    }
-    if mean_fitness:
-        for k, v in all_genes_map.items():
-            all_genes_map[k] = np.mean(v)
-    feature_importance_dict = {k: v for k, v in sorted(all_genes_map.items(), key=lambda item: -item[1])}
-    sum_value = np.sum([v for k, v in feature_importance_dict.items()])
-    feature_importance_dict = {k: v / sum_value for k, v in feature_importance_dict.items()}
-    return feature_importance_dict
+        if simple_version:
+            latex_string = lambda g: latex(simplify(gene_to_string(g).replace("ARG", "X").replace("_", "-")))
+            genes = [f'${latex_string(g)}$' for g in x.gene]
+        else:
+            def code_generation(gene):
+                code = str(gene)
+                args = ",".join(arg for arg in regr.pset.arguments)
+                code = "lambda {args}: {code}".format(args=args, code=code)
+                return code
 
+            genes = [f'{code_generation(g)}' for g in x.gene]
+        for g, c in zip(genes, x.coef):
+            all_genes_map[g] += 1 * c
+    feature_importance_dict = {k: v for k, v in sorted(all_genes_map.items(), key=lambda item: -item[1])}
+    return feature_importance_dict
 
 def select_top_features(code_importance_dict, ratio=None):
     """
